@@ -1,0 +1,99 @@
+{
+  "scenario_title": "복어독 살인사건",
+  "start_time": "2023-12-20 17:00",
+  "end_time": "2023-12-20 22:00",
+  "locations": {
+    "Hyeoksu_Sashimi": {
+      "description": "신혁수의 횟집. 주방과 홀이 있다.",
+      "connections": ["Street_Main"]
+    },
+    "Eunjeong_House": {
+      "description": "피해자 김은정의 2층 주택.",
+      "connections": ["Street_Residential"]
+    },
+    "Juyeon_Home": {
+      "description": "최주연의 단칸방.",
+      "connections": ["Street_Residential"]
+    },
+    "Taesu_Office": {
+      "description": "이태수의 대부업 사무실.",
+      "connections": ["Street_Main"]
+    },
+    "Gambling_Den": {
+      "description": "박해진이 돈을 잃은 도박장.",
+      "connections": ["Street_Backalley"]
+    },
+    "Conv_Store": {
+      "description": "편의점. 소주를 파는 곳.",
+      "connections": ["Street_Backalley"]
+    },
+    "Street_Main": {
+      "description": "번화가 거리. 모든 곳으로 통하는 중심가.",
+      "connections": ["Hyeoksu_Sashimi", "Taesu_Office", "Street_Residential", "Street_Backalley"]
+    },
+    "Street_Residential": {
+      "description": "주택가 골목.",
+      "connections": ["Eunjeong_House", "Juyeon_Home", "Street_Main"]
+    },
+    "Street_Backalley": {
+      "description": "어두운 뒷골목.",
+      "connections": ["Gambling_Den", "Conv_Store", "Street_Main"]
+    }
+  },
+  "agents": [
+    {
+      "name": "Kim_Eunjeong",
+      "age": 45,
+      "role": "Victim",
+      "traits": "사채업자, 악덕, 돈을 밝힘",
+      "start_location": "Eunjeong_House",
+      "goals": "18:00에 Hyeoksu_Sashimi로 가서 모임 참석, 빚 독촉하기",
+      "secret": "혁수와 불륜 관계"
+    },
+    {
+      "name": "Shin_Hyeoksu",
+      "age": 40,
+      "role": "Suspect",
+      "traits": "횟집 사장, 빚쟁이, 불안함",
+      "start_location": "Hyeoksu_Sashimi",
+      "goals": "가게 운영, 은정의 빚 독촉 피하기",
+      "secret": "은정에게 5천만원 빚이 있음"
+    },
+    {
+      "name": "Kim_Hyunjeong",
+      "age": 43,
+      "role": "Suspect",
+      "traits": "은정의 동생, 질투심 많음",
+      "start_location": "Hyeoksu_Sashimi",
+      "goals": "언니와 모임, 남자친구 혁수 감시",
+      "secret": "혁수가 바람피는 것 같음"
+    },
+    {
+      "name": "Choi_Juyeon",
+      "age": 46,
+      "role": "Killer",
+      "traits": "알바생, 열등감, 치밀함",
+      "start_location": "Juyeon_Home",
+      "goals": "19:30에 Eunjeong_House로 가서 독살 계획 실행",
+      "secret": "복어독을 훔침"
+    },
+    {
+      "name": "Lee_Taesu",
+      "age": 53,
+      "role": "Suspect",
+      "traits": "경쟁 사채업자, 다혈질",
+      "start_location": "Taesu_Office",
+      "goals": "20:00에 Eunjeong_House로 가서 따지기",
+      "secret": "은정을 증오함"
+    },
+    {
+      "name": "Park_Haejin",
+      "age": 33,
+      "role": "Suspect",
+      "traits": "도박 중독, 충동적",
+      "start_location": "Gambling_Den",
+      "goals": "도박하기, 술 마시기",
+      "secret": "술 마시면 기억 끊김"
+    }
+  ]
+}
