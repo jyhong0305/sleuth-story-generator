@@ -1,6 +1,6 @@
 # src/core/paper_memory.py
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict
 import numpy as np
 from dataclasses import dataclass
@@ -8,25 +8,13 @@ import uuid
 
 @dataclass
 class ConceptNode:
-    """
-    [논문] 기억의 기본 단위
-    
-    속성:
-    - node_id: 고유 식별자
-    - node_type: observation | thought | chat
-    - description: 자연어 설명
-    - created: 생성 시각
-    - last_accessed: 마지막 접근 시각
-    - importance: 1-10 중요도 (LLM 평가)
-    - embedding: 벡터 데이터
-    - access_count: 접근 횟수
-    """
+    """[논문] 기억의 기본 단위"""
     node_id: str
-    node_type: str  # observation, thought, chat
+    node_type: str
     description: str
     created: datetime
     last_accessed: datetime
-    importance: int  # 1-10
+    importance: int
     embedding: np.ndarray
     access_count: int = 0
     
@@ -45,9 +33,7 @@ class ConceptNode:
         )
 
 class PaperMemorySystem:
-    """
-    [논문 완전 구현] Memory Stream + Retrieval + Reflection
-    """
+    """[논문 완전 구현] Memory Stream + Retrieval + Reflection"""
     
     def __init__(self, agent_name: str, llm, embeddings_model):
         self.agent_name = agent_name
@@ -60,51 +46,45 @@ class PaperMemorySystem:
         self.alpha_recency = 1.0
         self.beta_importance = 1.0
         self.gamma_relevance = 1.0
-        self.decay_rate = 0.99  # 시간당 감쇠율
+        self.decay_rate = 0.99
         
-        # [논문] Reflection 트리거
+        # [논문] Reflection 설정
         self.importance_accumulator = 0
-        self.reflection_threshold = 50
+        self.reflection_threshold = 50  # 낮춤
+        self.last_reflection_time = None
+        self.reflection_cooldown_minutes = 15
     
-    def add_memory(self, description: str, current_time: datetime, 
+    def add_memory(self, description: str, now: datetime, 
                    node_type: str = "observation") -> ConceptNode:
-        """
-        [논문] 기억 추가
-        1. 중요도 평가 (LLM)
-        2. 임베딩 생성
-        3. ConceptNode 생성 및 저장
-        """
-        # 1. 중요도 평가
+        """[수정] 파라미터 이름 'now'로 통일"""
+        
+        # 중요도 평가
         importance = self._evaluate_importance(description)
         
-        # 2. 임베딩
+        # 임베딩
         embedding = self._get_embedding(description)
         
-        # 3. 노드 생성
+        # 노드 생성
         node = ConceptNode.create(
             node_type=node_type,
             description=description,
-            created=current_time,
+            created=now,
             importance=importance,
             embedding=embedding
         )
         
         self.memory_stream.append(node)
         
-        # 4. Reflection 트리거 체크
+        # Reflection 트리거
         self.importance_accumulator += importance
-        if self.importance_accumulator >= self.reflection_threshold:
-            self._trigger_reflection(current_time)
+        
+        if self._should_reflect(now):
+            self._trigger_reflection(now)
         
         return node
     
     def _evaluate_importance(self, description: str) -> int:
-        """
-        [논문] LLM으로 중요도 평가 (1-10)
-        
-        프롬프트: "1점은 매우 평범, 10점은 매우 중요할 때,
-                  다음 기억의 중요도를 평가하라"
-        """
+        """[논문] LLM 중요도 평가"""
         prompt = f"""On the scale of 1 to 10, where 1 is purely mundane (e.g., brushing teeth, making bed) and 10 is extremely poignant (e.g., a break up, college acceptance), rate the likely poignancy of the following piece of memory.
 
 Memory: {description}
@@ -132,15 +112,9 @@ Rating: <fill in>"""
         except:
             return np.zeros(1536)
     
-    def retrieve(self, query: str, current_time: datetime, top_k: int = 10) -> List[ConceptNode]:
-        """
-        [논문] 검색 공식
-        S = α*Recency + β*Importance + γ*Relevance
+    def retrieve(self, query: str, now: datetime, top_k: int = 10) -> List[ConceptNode]:
+        """[논문] 검색 공식"""
         
-        - Recency: 지수 감쇠 (decay_rate^hours_ago)
-        - Importance: 0-1 정규화
-        - Relevance: 코사인 유사도
-        """
         if not self.memory_stream:
             return []
         
@@ -148,14 +122,14 @@ Rating: <fill in>"""
         
         scored_nodes = []
         for node in self.memory_stream:
-            # 1. Recency
-            hours_ago = (current_time - node.last_accessed).total_seconds() / 3600
+            # Recency
+            hours_ago = (now - node.last_accessed).total_seconds() / 3600
             recency = self.decay_rate ** hours_ago
             
-            # 2. Importance (0-1 정규화)
+            # Importance
             importance = node.importance / 10.0
             
-            # 3. Relevance (코사인 유사도)
+            # Relevance
             relevance = self._cosine_similarity(query_embedding, node.embedding)
             
             # 최종 점수
@@ -167,13 +141,12 @@ Rating: <fill in>"""
             
             scored_nodes.append((score, node))
         
-        # 정렬 및 상위 k개
         scored_nodes.sort(key=lambda x: x[0], reverse=True)
         top_nodes = [node for _, node in scored_nodes[:top_k]]
         
         # 접근 시각 업데이트
         for node in top_nodes:
-            node.last_accessed = current_time
+            node.last_accessed = now
             node.access_count += 1
         
         return top_nodes
@@ -188,49 +161,62 @@ Rating: <fill in>"""
             return 0.0
         return np.dot(vec1, vec2) / (norm1 * norm2)
     
-    def _trigger_reflection(self, current_time: datetime):
-        """
-        [논문] Reflection 2단계
+    def _should_reflect(self, now: datetime) -> bool:
+        """Reflection 발동 여부 (쿨다운)"""
         
-        1단계: 핵심 질문 생성
-        2단계: 인사이트 추출
-        """
+        if self.importance_accumulator < self.reflection_threshold:
+            return False
+        
+        if self.last_reflection_time:
+            minutes_passed = (now - self.last_reflection_time).total_seconds() / 60
+            if minutes_passed < self.reflection_cooldown_minutes:
+                return False
+        
+        return True
+    
+    def _trigger_reflection(self, now: datetime):
+        """[논문] Reflection 2단계"""
         print(f"\n🧠 [{self.agent_name}] Reflection 트리거!")
-        # 카운터 초기화
-        self.importance_accumulator = 0
         
-        # 최근 100개 기억
+        # 즉시 카운터 초기화
+        self.importance_accumulator = 0
+        self.last_reflection_time = now
+        
+        # 최근 기억
         recent = self.memory_stream[-100:]
         if len(recent) < 10:
             return
         
-        # 1단계: 핵심 질문 생성
+        # 1단계: 질문 생성
         questions = self._generate_reflection_questions(recent)
         
-        # 2단계: 각 질문에 대한 인사이트
+        # 2단계: 인사이트
         insights = []
-        for question in questions:
-            insight = self._generate_insight(question, current_time)
+        for question in questions[:2]:
+            insight = self._generate_insight(question, now)
             if insight:
                 insights.append(insight)
         
-        # 인사이트를 기억으로 저장
+        # 저장 (importance=0)
         for insight in insights:
-            self.add_memory(
-                f"[깨달음] {insight}",
-                current_time,
-                node_type="thought"
+            node = ConceptNode.create(
+                node_type="thought",
+                description=f"[깨달음] {insight}",
+                created=now,
+                importance=0,
+                embedding=self._get_embedding(insight)
             )
+            self.memory_stream.append(node)
             print(f"   💡 {insight}")
     
     def _generate_reflection_questions(self, recent_memories: List[ConceptNode]) -> List[str]:
-        """[논문 1단계] 핵심 질문 생성"""
+        """질문 생성"""
         memory_texts = "\n".join([
             f"{i+1}. {node.description}"
-            for i, node in enumerate(recent_memories[:30])
+            for i, node in enumerate(recent_memories[:20])
         ])
         
-        prompt = f"""Given only the information above, what are 3 most salient high-level questions we can answer about the subjects in the statements?
+        prompt = f"""Given only the information above, what are 2 most salient high-level questions we can answer about {self.agent_name}?
 
 {memory_texts}
 
@@ -243,42 +229,45 @@ Questions:"""
             questions = [
                 line.strip().lstrip('123456789.-) ')
                 for line in content.split('\n')
-                if line.strip() and not line.strip().startswith('#')
+                if line.strip() and len(line.strip()) > 10
             ]
-            return questions[:3]
-        except:
+            return questions[:2]
+        except Exception as e:
+            print(f"   ⚠️ 질문 생성 실패: {e}")
             return []
     
-    def _generate_insight(self, question: str, current_time: datetime) -> Optional[str]:
-        """[논문 2단계] 인사이트 추출"""
-        # 질문 관련 기억 검색
-        relevant = self.retrieve(question, current_time, top_k=10)
+    def _generate_insight(self, question: str, now: datetime) -> Optional[str]:
+        """인사이트 생성"""
+        relevant = self.retrieve(question, now, top_k=5)
+        
+        if not relevant:
+            return None
         
         statements = "\n".join([
             f"{i+1}. {node.description}"
             for i, node in enumerate(relevant)
         ])
         
-        prompt = f"""Statements about {self.agent_name}:
+        prompt = f"""Based on these statements about {self.agent_name}:
 {statements}
 
-What high-level insight can you infer from the above statements? (5 insights)
+What is ONE high-level insight? (Keep it concise, one sentence)
 
-Insights:"""
+Insight:"""
 
         try:
             response = self.llm.invoke(prompt)
             content = response.content if hasattr(response, 'content') else str(response)
             
-            # 첫 번째 인사이트만 반환
             lines = [l.strip() for l in content.split('\n') if l.strip()]
             if lines:
-                return lines[0].lstrip('123456789.-) ')
+                return lines[0].lstrip('123456789.-) ')[:200]
             return None
-        except:
+        except Exception as e:
+            print(f"   ⚠️ 인사이트 생성 실패: {e}")
             return None
     
     def get_memory_descriptions(self, top_k: int = 10) -> List[str]:
-        """최근 기억 텍스트 반환"""
+        """최근 기억 텍스트"""
         recent = self.memory_stream[-top_k:]
         return [node.description for node in recent]

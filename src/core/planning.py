@@ -25,37 +25,42 @@ class AdvancedPlanningSystem:
         self.hourly_plan: List[Plan] = []
     
     def generate_daily_plan(self, current_time: datetime, agent_traits: str):
-        """Daily Plan 생성"""
+        """Daily Plan 생성 (대화 중심으로)"""
+        
         recent_memories = self.get_memories("최근 일정과 중요한 일", 10)
         memory_context = "\n".join([f"- {m}" for m in recent_memories])
         
         prompt = f"""당신은 {self.agent_name}입니다.
 
-성격: {agent_traits}
+    성격: {agent_traits}
 
-최근 기억:
-{memory_context}
+    최근 기억:
+    {memory_context}
 
-현재: {current_time.strftime('%Y-%m-%d %H:%M')}
+    현재: {current_time.strftime('%Y-%m-%d %H:%M')}
 
-**중요: 다른 사람들과의 상호작용을 반드시 포함하세요!**
+    **중요한 규칙:**
+    1. 다른 사람들과의 만남/대화를 반드시 포함할 것
+    2. 구체적인 사람 이름을 명시할 것 (예: "김민준과 이야기")
+    3. 너무 세부적이지 않게 (큰 틀만)
+    4. 5-7개 활동
 
-오늘 하루 계획을 세우세요. 5-8개 활동.
+    **특히 중요:** 기억에 있는 중요한 관계/문제는 반드시 계획에 포함!
 
-규칙:
-1. 업무 + 대인관계 균형
-2. 특정 사람 이름 명시 (예: "김민준과 대화")
-3. 장소 이동 포함
-4. 감정적 목표 포함 (예: "급여 문제 해결")
+    형식:
+    HH:MM | 분 | 활동
 
-형식:
-HH:MM | 분 | 활동 (구체적 사람 이름 포함)
+    좋은 예:
+    09:00 | 60 | 출근 후 주방 청소
+    10:00 | 30 | 김민준 찾아가서 인사하기
+    10:30 | 60 | 김민준과 급여 문제 진지하게 논의
+    12:00 | 120 | 점심 손님 응대
 
-예시:
-09:00 | 30 | 주방 청소
-09:30 | 30 | 김민준 찾아가서 인사하기
-10:00 | 30 | 김민준과 급여 문제 이야기
-15:00 | 60 | 홀에서 손님 응대"""
+    나쁜 예 (이렇게 하지 마세요):
+    09:00 | 5 | 주방 바닥 쓰레기 줍기
+    09:05 | 10 | 조리대 위 기름기 제거
+    09:15 | 5 | 냉장고 재료 확인
+    ..."""
 
         try:
             response = self.llm.invoke(prompt)
@@ -84,7 +89,7 @@ HH:MM | 분 | 활동 (구체적 사람 이름 포함)
             
             if plans:
                 print(f"\n📅 [{self.agent_name}] Daily Plan:")
-                for p in plans[:3]:
+                for p in plans:
                     print(f"   {p}")
             
             return plans
@@ -92,7 +97,6 @@ HH:MM | 분 | 활동 (구체적 사람 이름 포함)
         except Exception as e:
             print(f"⚠️ Daily plan 실패: {e}")
             return []
-    
     def generate_hourly_plan(self, current_time: datetime, current_task: str):
         """Hourly Plan 생성"""
         relevant_memories = self.get_memories(current_task, 5)
@@ -162,32 +166,53 @@ HH:MM | 분 | 활동 (구체적 사람 이름 포함)
         
         return "자유 시간"
     
+    # src/core/planning.py
+    
     def decide_action(self, observation: str, current_plan: str, 
-                     people_nearby: List[str], current_time: datetime) -> Dict[str, str]:
-        """행동 결정"""
+                    people_nearby: List[str], current_time: datetime) -> Dict[str, str]:
+        """행동 결정 (개선)"""
+        
         relevant_memories = self.get_memories(observation, 8)
         memory_context = "\n".join([f"- {m}" for m in relevant_memories])
         
+        # [추가] 긴급 기억 확인
+        urgent_memories = [m for m in relevant_memories if "[긴급]" in m]
+        urgent_context = ""
+        if urgent_memories:
+            urgent_context = f"\n\n⚠️ 긴급 사항:\n" + "\n".join([f"- {m}" for m in urgent_memories])
+        
         prompt = f"""당신은 {self.agent_name}입니다.
 
-상황: {observation}
-계획: {current_plan}
-주변: {', '.join(people_nearby) if people_nearby else '없음'}
+    **현재 상황:**
+    {observation}
 
-기억:
-{memory_context}
+    **현재 계획:** {current_plan}
 
-행동을 결정하세요.
+    **주변 사람:** {', '.join(people_nearby) if people_nearby else '없음'}
 
-형식:
-THOUGHT: [생각]
-ACTION_TYPE: [MOVE | CHAT | ACTION | WAIT]
-TARGET: [장소/사람/행동/이유]
+    **관련 기억:**
+    {memory_context}
+    {urgent_context}
 
-예시:
-THOUGHT: 사장님이 보이니 급여 이야기를 해야겠다
-ACTION_TYPE: CHAT
-TARGET: 신혁수"""
+    **행동을 결정하세요.**
+
+    **중요:**
+    - 주변에 중요한 사람이 있으면 대화를 우선시하세요!
+    - [긴급] 표시가 있는 기억은 최우선!
+    - 같은 행동을 반복하지 마세요
+
+    **형식:**
+    THOUGHT: [생각]
+    ACTION_TYPE: [MOVE | CHAT | ACTION | WAIT]
+    TARGET: [구체적 대상]
+
+    **예시:**
+    주변: 신혁수
+    기억: 급여 문제 해결 필요
+
+    THOUGHT: 사장님이 바로 옆에 있다. 지금 급여 이야기를 해야 한다.
+    ACTION_TYPE: CHAT
+    TARGET: 신혁수"""
 
         try:
             response = self.llm.invoke(prompt)
@@ -214,6 +239,6 @@ TARGET: 신혁수"""
             print(f"⚠️ 행동 결정 실패: {e}")
             return {
                 "thought": "오류",
-                "action_type": "ACTION",
-                "target": current_plan
+                "action_type": "CHAT" if people_nearby else "ACTION",
+                "target": people_nearby[0] if people_nearby else current_plan
             }
